@@ -1,85 +1,82 @@
 <!DOCTYPE html>
 
 <html lang="ko">
-  <head>
-    <title>주소 찾기</title>
-    <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width,height=device-height,initial-scale=1.0"
-    />
-  </head>
-  <body onload="execDaumPostcode()">
-    <div
-      id="layer"
-      style="display:block; position:absolute; overflow:hidden; z-index:1; -webkit-overflow-scrolling:touch; "
-    ></div>
-    <script src="https://spi.maps.daum.net/imap/map_js_init/postcode.v2.js"></script>
-    <script>
-      window.addEventListener("message", onReceivedPostMessage, false);
 
-      function onReceivedPostMessage(event) {
-        //..ex deconstruct event into action & params
-        var action = event.data.action;
-        var params = event.data.params;
-        console.log("onReceivedPostMessage " + event);
-      }
+<head>
+  <title>주소 찾기</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,height=device-height,initial-scale=1.0" />
+</head>
 
-      function onReceivedActivityMessageViaJavascriptInterface(json) {
-        //..ex deconstruct data into action & params
-        var data = JSON.parse(json);
-        var action = data.action;
-        var params = data.params;
-        console.log("onReceivedActivityMessageViaJavascriptInterface " + event);
-      }
+<body onload="execDaumPostcode()">
+  <div id="layer"
+    style="display:block; position:absolute; overflow:hidden; z-index:1; -webkit-overflow-scrolling:touch; "></div>
+  <script src="https://spi.maps.daum.net/imap/map_js_init/postcode.v2.js"></script>
+  <script>
+    var element_layer = document.getElementById("layer");
 
-      function postMessageToiOS(postData) {
-        window.webkit.messageHandlers.callBackHandler.postMessage(postData);
-      }
+    // return= 파라미터(우리 페이지 경로) 받기
+    function getReturnUrl() {
+      try {
+        const u = new URL(location.href);
+        return u.searchParams.get("return") || "";
+      } catch (e) { return ""; }
+    }
 
-      var element_layer = document.getElementById("layer");
-      function execDaumPostcode() {
-        new daum.Postcode({
-          oncomplete: function (data) {
-            var jibunAddress = "";
+    function execDaumPostcode() {
+      new daum.Postcode({
+        oncomplete: function (data) {
+          // 도로명 우선, 없으면 지번
+          var road = data.roadAddress || data.jibunAddress || data.autoRoadAddress || "";
+          var zip = data.zonecode || "";
 
-            if (data.jibunAddress == "") {
-              jibunAddress = data.autoJibunAddress;
-            } else if (data.autoJibunAddress == "") {
-              jibunAddress = data.jibunAddress;
+          // iOS/Android 네이티브 브리지가 있다면 먼저 보내기
+          try {
+            if (window.Android?.onPostcodeSelected) {
+              window.Android.onPostcodeSelected(JSON.stringify({ road, zip }));
+            } else if (window.webkit?.messageHandlers?.callBackHandler) {
+              window.webkit.messageHandlers.callBackHandler.postMessage({ road, zip });
             }
+          } catch (e) {
+            // 브리지 에러는 무시하고 폴백 계속 진행
+          }
 
-            var postData = {
-              roadAddress: data.roadAddress,
-              jibunAddress: jibunAddress,
-              zonecode: data.zonecode,
-            };
-            window.postMessageToiOS(postData);
-          },
-          width: "100%",
-          height: "100%",
-        }).embed(element_layer);
-        element_layer.style.display = "block";
-        initLayerPosition();
-      }
+          // ★ 웹 폴백: 우리 사이트로 "같은 창"에서 되돌아가기
+          var returnUrl = getReturnUrl();
+          if (returnUrl) {
+            // (선택) 같은 탭/창 내에서 값 전달도 겸사: window.name
+            try { window.name = JSON.stringify({ road, zip, ts: Date.now() }); } catch (e) { }
+            // 해시에 road, zip 실어서 리다이렉트 (우리 React가 해시 파싱)
+            location.replace(returnUrl + "#road=" + encodeURIComponent(road) + "&zip=" + encodeURIComponent(zip));
+            return;
+          }
 
-      function initLayerPosition() {
-        var width = window.innerWidth || document.documentElement.clientWidth;
-        var height =
-          window.innerHeight || document.documentElement.clientHeight;
-        element_layer.style.width = width + "px";
-        element_layer.style.height = height + "px";
-        element_layer.style.left =
-          ((window.innerWidth || document.documentElement.clientWidth) -
-            width) /
-            2 +
-          "px";
-        element_layer.style.top =
-          ((window.innerHeight || document.documentElement.clientHeight) -
-            height) /
-            2 +
-          "px";
-      }
-    </script>
-  </body>
+          // return 파라미터가 없으면 경고만
+          alert("return URL이 없습니다. ?return=... 을 확인해 주세요.");
+        },
+        width: "100%",
+        height: "100%",
+      }).embed(element_layer);
+
+      element_layer.style.display = "block";
+      initLayerPosition();
+    }
+
+    function initLayerPosition() {
+      var width = window.innerWidth || document.documentElement.clientWidth;
+      var height = window.innerHeight || document.documentElement.clientHeight;
+      element_layer.style.width = width + "px";
+      element_layer.style.height = height + "px";
+      element_layer.style.left = ((window.innerWidth || document.documentElement.clientWidth) - width) / 2 + "px";
+      element_layer.style.top = ((window.innerHeight || document.documentElement.clientHeight) - height) / 2 + "px";
+    }
+
+    // 디버그 로그 정리(선택)
+    window.addEventListener("message", function (event) {
+      console.log("[GH] onReceivedPostMessage:", event?.data);
+    }, false);
+  </script>
+
+</body>
+
 </html>
