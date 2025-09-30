@@ -1,29 +1,42 @@
 <!DOCTYPE html>
-
 <html lang="ko">
 
 <head>
-  <title>주소 찾기</title>
   <meta charset="UTF-8" />
+  <title>주소 찾기</title>
   <meta name="viewport" content="width=device-width,height=device-height,initial-scale=1.0" />
+  <!-- 권장 최신 스크립트 경로 -->
+  <script src="//t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"></script>
   <style>
-    /* 닫기 버튼 스타일 */
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+    }
+
+    #layer {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      -webkit-overflow-scrolling: touch;
+      z-index: 1;
+    }
+
+    /* 닫기 버튼(옵션) */
     #closeBtn {
       position: fixed;
-      /* 지도 위에 고정 */
       top: calc(60px + env(safe-area-inset-top, 0px));
       right: 12px;
       width: 40px;
       height: 40px;
       border-radius: 9999px;
       border: none;
-      cursor: pointer;
+      background: rgba(0, 0, 0, .65);
+      color: #fff;
       font-size: 22px;
       line-height: 40px;
       z-index: 9999;
-      /* 지도(z-index:1)보다 위 */
-      background: rgba(0, 0, 0, .65);
-      color: #fff;
+      cursor: pointer;
     }
 
     #closeBtn:focus {
@@ -34,103 +47,71 @@
 
 <body onload="execDaumPostcode()">
   <button id="closeBtn" aria-label="닫기" title="닫기">×</button>
-  <div id="layer"
-    style="display:block; position:absolute; overflow:hidden; z-index:1; -webkit-overflow-scrolling:touch; "></div>
-  <script src="https://spi.maps.daum.net/imap/map_js_init/postcode.v2.js"></script>
+  <div id="layer"></div>
+
   <script>
-    var element_layer = document.getElementById("layer");
+    // 부모 앱 오리진 (환경에 맞춰 http/https 정확히!)
+    // 운영이 http라면 아래처럼 고정:
+    const APP_ORIGIN = "http://wizmarket.ai";
+    // 운영이 https로 바뀌면: const APP_ORIGIN = "https://wizmarket.ai";
 
-    // return= 파라미터(우리 페이지 경로) 받기
+    const layer = document.getElementById("layer");
+
+    // In-App(iframe) 여부
+    const inIframe = (() => {
+      try { return window.self !== window.top; } catch { return true; }
+    })();
+
     function getReturnUrl() {
-      try {
-        const u = new URL(location.href);
-        return u.searchParams.get("return") || "";
-      } catch (e) { return ""; }
+      try { return new URL(location.href).searchParams.get("return") || ""; }
+      catch { return ""; }
     }
 
-    // 닫기 동작
-    function closePostcode() {
-      try {
-        // 네이티브 브리지에 '닫힘' 알림이 필요하면 여기서 보내도 됨
-        if (window.Android?.onPostcodeClosed) window.Android.onPostcodeClosed();
-        if (window.webkit?.messageHandlers?.callBackHandler) {
-          window.webkit.messageHandlers.callBackHandler.postMessage({ closed: true });
-        }
-      } catch (e) {
-        alert("no PostcodeClosed in bridge")
-      }
-
-      // 1) 새 창/팝업으로 열렸다면 닫기
+    // 닫기(옵션)
+    document.getElementById("closeBtn").addEventListener("click", () => {
+      // 팝업으로 열렸다면 닫기
       if (window.opener && !window.opener.closed) { window.close(); return; }
-
-      // 2) 뒤로 갈 수 있으면 뒤로가기
+      // 뒤로가기 가능하면 뒤로
       if (history.length > 1) { history.back(); return; }
-
-      // 3) return 파라미터가 있으면 그쪽으로 복귀(닫힘 표시 해시 포함)
-      var returnUrl = getReturnUrl();
-      if (returnUrl) { location.replace(returnUrl + "#closed=1"); return; }
-
-      // 4) 최후수단: 레이어만 숨기기
-      element_layer.style.display = "none";
-    }
-
-    // 버튼 이벤트 연결
-    document.getElementById('closeBtn').addEventListener('click', closePostcode);
+      // return 파라미터 있으면 그쪽으로
+      const ret = getReturnUrl();
+      if (ret) { location.replace(ret + "#closed=1"); return; }
+      // 최후수단: 레이어 숨김
+      layer.style.display = "none";
+    });
 
     function execDaumPostcode() {
       new daum.Postcode({
         oncomplete: function (data) {
-          // 도로명 우선, 없으면 지번
-          var road = data.roadAddress || data.jibunAddress || data.autoRoadAddress || "";
-          var zip = data.zonecode || "";
+          const road = data.roadAddress || data.jibunAddress || data.autoRoadAddress || "";
+          const zip = data.zonecode || "";
 
-          // iOS/Android 네이티브 브리지가 있다면 먼저 보내기
-          try {
-            if (window.Android?.onPostcodeSelected) {
-              window.Android.onPostcodeSelected(JSON.stringify({ road, zip }));
-            } else if (window.webkit?.messageHandlers?.callBackHandler) {
-              window.webkit.messageHandlers.callBackHandler.postMessage({ road, zip });
-            }
-          } catch (e) {
-            // 브리지 에러는 무시하고 폴백 계속 진행
-          }
-
-          // 웹 폴백: 우리 사이트로 "같은 창"에서 되돌아가기
-          var returnUrl = getReturnUrl();
-          if (returnUrl) {
-            // (선택) 같은 탭/창 내에서 값 전달도 겸사: window.name
-            try { window.name = JSON.stringify({ road, zip, ts: Date.now() }); } catch (e) { }
-            // 해시에 road, zip 실어서 리다이렉트 (우리 React가 해시 파싱)
-            location.replace(returnUrl + "#road=" + encodeURIComponent(road) + "&zip=" + encodeURIComponent(zip));
+          if (inIframe) {
+            // ✅ In-App(iframe)로 열린 경우: 부모 앱으로 postMessage
+            // AdsInApp.jsx가 이 메시지만 조건부로 수신합니다.
+            window.parent.postMessage(
+              { type: "POSTCODE_SELECTED", road, zip },
+              APP_ORIGIN
+            );
             return;
           }
 
-          // return 파라미터가 없으면 경고만
+          // ✅ 단독으로 열린 경우: return= 으로 직접 복귀 (해시로 값 전달)
+          const ret = getReturnUrl();
+          if (ret) {
+            const target = ret + "#road=" + encodeURIComponent(road) + "&zip=" + encodeURIComponent(zip);
+            // 기록 남기지 않게 replace 권장
+            location.replace(target);
+            return;
+          }
+
           alert("return URL이 없습니다. ?return=... 을 확인해 주세요.");
         },
         width: "100%",
-        height: "100%",
-      }).embed(element_layer);
-
-      element_layer.style.display = "block";
-      initLayerPosition();
+        height: "100%"
+      }).embed(layer);
     }
-
-    function initLayerPosition() {
-      var width = window.innerWidth || document.documentElement.clientWidth;
-      var height = window.innerHeight || document.documentElement.clientHeight;
-      element_layer.style.width = width + "px";
-      element_layer.style.height = height + "px";
-      element_layer.style.left = ((window.innerWidth || document.documentElement.clientWidth) - width) / 2 + "px";
-      element_layer.style.top = ((window.innerHeight || document.documentElement.clientHeight) - height) / 2 + "px";
-    }
-
-    // 디버그 로그 정리(선택)
-    window.addEventListener("message", function (event) {
-      console.log("[GH] onReceivedPostMessage:", event?.data);
-    }, false);
   </script>
-
 </body>
 
 </html>
