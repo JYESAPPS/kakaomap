@@ -61,7 +61,6 @@
           if (INAPP) {
             // 인앱: 오직 postMessage만! (리다이렉트 금지)
             window.parent.postMessage({ type: 'POSTCODE_SELECTED', road, zip }, APP_ORIGIN);
-            window.parent.postMessage({ type: 'POSTCODE_SELECTED', road, zip }, "*");
             return;
           }
           // 단독 사용 시: RETURN_URL로 해시 전달
