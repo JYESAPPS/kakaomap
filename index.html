@@ -50,34 +50,22 @@
   <div id="layer"></div>
 
   <script>
-    // 부모 앱 오리진 (환경에 맞춰 http/https 정확히!)
-    // 운영이 http라면 아래처럼 고정:
+    const url = new URL(location.href);
+    const INAPP = url.searchParams.get('inapp') === '1';         // ← 인앱 표식
     const APP_ORIGIN = "http://wizmarket.ai";
-    // 운영이 https로 바뀌면: const APP_ORIGIN = "https://wizmarket.ai";
+    const RETURN_URL = url.searchParams.get('return') || "";     // ← 단독(비-inapp) 사용 시만
+    const layer = document.getElementById('layer');
 
-    const layer = document.getElementById("layer");
-
-    // In-App(iframe) 여부
-    const inIframe = (() => {
-      try { return window.self !== window.top; } catch { return true; }
-    })();
-
-    function getReturnUrl() {
-      try { return new URL(location.href).searchParams.get("return") || ""; }
-      catch { return ""; }
-    }
-
-    // 닫기(옵션)
-    document.getElementById("closeBtn").addEventListener("click", () => {
-      // 팝업으로 열렸다면 닫기
-      if (window.opener && !window.opener.closed) { window.close(); return; }
-      // 뒤로가기 가능하면 뒤로
+    document.getElementById('closeBtn').addEventListener('click', () => {
+      if (INAPP) {
+        // 인앱: 부모에게 닫힘 신호만 보냄 (리다이렉트 금지)
+        window.parent.postMessage({ type: 'POSTCODE_CLOSED' }, APP_ORIGIN);
+        return;
+      }
+      // 단독: 뒤로가기/리턴URL/레이어 숨김
       if (history.length > 1) { history.back(); return; }
-      // return 파라미터 있으면 그쪽으로
-      const ret = getReturnUrl();
-      if (ret) { location.replace(ret + "#closed=1"); return; }
-      // 최후수단: 레이어 숨김
-      layer.style.display = "none";
+      if (RETURN_URL) { location.replace(RETURN_URL + '#closed=1'); return; }
+      document.getElementById('layer').style.display = 'none';
     });
 
     function execDaumPostcode() {
@@ -86,22 +74,14 @@
           const road = data.roadAddress || data.jibunAddress || data.autoRoadAddress || "";
           const zip = data.zonecode || "";
 
-          if (inIframe) {
-            // ✅ In-App(iframe)로 열린 경우: 부모 앱으로 postMessage
-            // AdsInApp.jsx가 이 메시지만 조건부로 수신합니다.
-            window.parent.postMessage(
-              { type: "POSTCODE_SELECTED", road, zip },
-              APP_ORIGIN
-            );
+          if (INAPP) {
+            // ✅ 인앱: 오직 postMessage만! (리다이렉트 금지)
+            window.parent.postMessage({ type: 'POSTCODE_SELECTED', road, zip }, APP_ORIGIN);
             return;
           }
-
-          // ✅ 단독으로 열린 경우: return= 으로 직접 복귀 (해시로 값 전달)
-          const ret = getReturnUrl();
-          if (ret) {
-            const target = ret + "#road=" + encodeURIComponent(road) + "&zip=" + encodeURIComponent(zip);
-            // 기록 남기지 않게 replace 권장
-            location.replace(target);
+          // 단독 사용 시: RETURN_URL로 해시 전달
+          if (RETURN_URL) {
+            location.replace(RETURN_URL + '#road=' + encodeURIComponent(road) + '&zip=' + encodeURIComponent(zip));
             return;
           }
 
